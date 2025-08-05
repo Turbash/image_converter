@@ -1,0 +1,26 @@
+use image::{ImageFormat, DynamicImage, GenericImage};
+
+pub fn png_to_jpg(input_path: &str, output_path: &str) -> Result<(), String> {
+    let img = match image::open(input_path) {
+        Ok(i) => i,
+        Err(e) => {
+            return Err(format!("Failed to open PNG: {}", e));
+        }
+    };
+    let img = if let Some(_) = img.as_rgba8() {
+        let mut background = DynamicImage::new_rgb8(img.width(), img.height());
+        match background.copy_from(&img, 0, 0) {
+            Ok(_) => {},
+            Err(e) => {
+                return Err(format!("Failed to flatten PNG: {}", e));
+            }
+        }
+        background
+    } else {
+        img
+    };
+    match img.save_with_format(output_path, ImageFormat::Jpeg) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("Failed to save as JPG: {}", e)),
+    }
+}
