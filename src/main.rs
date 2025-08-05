@@ -5,10 +5,16 @@ mod jpg_to_webp;
 mod png_to_webp;
 mod webp_to_png;
 mod ui;
+mod preprocess;
+mod inference;
+mod apply_mask;
 
 use std::fs;
 use std::process;
 use ui::get_user_input;
+use preprocess::preprocess_image;
+use inference::run_inference;
+use apply_mask::apply_mask;
 
 fn main() {
     let (input_path, output_base, selection) = get_user_input();
@@ -38,6 +44,23 @@ fn main() {
         Err(e) => {
             eprintln!("Error: {}", e);
             process::exit(1);
+        }
+    }
+
+    let input_img = match image::open(&input_path) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("Error: Failed to open input image: {}", e);
+            std::process::exit(1);
+        }
+    };
+    if output_ext == "png" {
+        let model_path = "./model_simplified.onnx";
+        match preprocess_image(&input_path)
+            .and_then(|input_tensor| run_inference(input_tensor))
+            .and_then(|mask| apply_mask(&input_path, mask, &output_file)) {
+            Ok(_) => println!("Background removed and saved as {}", output_file),
+            Err(e) => eprintln!("Background removal failed: {}", e),
         }
     }
 }
