@@ -1,23 +1,127 @@
-use dialoguer::{Input, Select};
+use dialoguer::{Input, Select, theme::ColorfulTheme, Confirm};
+use dialoguer::console::Style;
+use std::path::{Path, PathBuf};
+use std::fs;
 
-pub fn get_user_input() -> (String, String, usize) {
-    let input_path = Input::new()
-        .with_prompt("Enter the path to your input image file")
-        .interact_text()
-        .expect("Failed to read input path");
+pub fn get_user_input() -> (String, String, usize, bool) {
+    let cyan = Style::new().cyan().bold();
+    println!("{}", cyan.apply_to("\n=== Image Converter TUI ===\n"));
 
-    let output_base = Input::new()
-        .with_prompt("Enter the desired output file path (without extension)")
+    fn pick_file(start_dir: &Path) -> Option<PathBuf> {
+        #[derive(Debug)]
+        enum Item {
+            Up,
+            Dir(PathBuf),
+            File(PathBuf),
+        }
+        let mut current_dir = start_dir.to_path_buf();
+        loop {
+            let mut entries: Vec<_> = fs::read_dir(&current_dir)
+                .ok()?
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    if let Some(name) = e.file_name().to_str() {
+                        !name.starts_with('.')
+                    } else {
+                        false
+                    }
+                })
+                .collect();
+            entries.sort_by_key(|e| e.path());
+            let mut items = vec![];
+            let mut actions = vec![];
+            if let Some(_parent) = current_dir.parent() {
+                items.push("[..]".to_string());
+                actions.push(Item::Up);
+            }
+            for entry in &entries {
+                let path = entry.path();
+                if path.is_dir() {
+                    items.push(format!("📁 {}", path.file_name()?.to_string_lossy()));
+                    actions.push(Item::Dir(path));
+                } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ["jpg", "jpeg", "png", "webp"].contains(&ext.to_lowercase().as_str()) {
+                        items.push(path.file_name()?.to_string_lossy().to_string());
+                        actions.push(Item::File(path));
+                    }
+                }
+            }
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!("Select an image file (current: {})", current_dir.display()))
+                .items(&items)
+                .default(0)
+                .interact()
+                .ok()?;
+            match &actions[selection] {
+                Item::Up => {
+                    current_dir = current_dir.parent().unwrap().to_path_buf();
+                }
+                Item::Dir(dir) => {
+                    current_dir = dir.clone();
+                }
+                Item::File(file) => {
+                    return Some(file.clone());
+                }
+            }
+        }
+    }
+
+    let input_path = pick_file(&std::env::current_dir().unwrap())
+        .map(|p| p.display().to_string())
+        .expect("No file selected");
+
+    let output_base = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Enter the desired output file name (without extension)")
+        .validate_with(|input: &String| {
+            if input.trim().is_empty() {
+                Err("Output name cannot be empty")
+            } else if input.contains('.') {
+                Err("Do not include an extension (e.g., .png)")
+            } else {
+                Ok(())
+            }
+        })
         .interact_text()
         .expect("Failed to read output path");
 
     let formats = ["JPG", "PNG", "WebP"];
-    let format_index = Select::new()
+    let format_index = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Select the output format")
         .items(&formats)
         .default(0)
         .interact()
         .expect("Failed to select format");
 
-    (input_path, output_base, format_index)
+    let mut remove_bg = false;
+    if format_index == 1 || format_index == 2 {
+        println!("\n{}", Style::new().yellow().apply_to("Background removal is available for PNG and WebP outputs."));
+        remove_bg = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Remove background from output image?")
+            .default(false)
+            .interact()
+            .unwrap_or(false);
+        if remove_bg {
+            println!("{}", Style::new().green().apply_to("Background removal will be applied."));
+        }
+    }
+
+    println!("\n{}", cyan.apply_to("Summary:"));
+    println!("  Input file:   {}", input_path);
+    println!("  Output name:  {}", output_base);
+    println!("  Output type:  {}", formats[format_index]);
+    if format_index == 1 || format_index == 2 {
+        println!("  Remove BG:    {}", if remove_bg { "Yes" } else { "No" });
+    }
+
+    let proceed = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Proceed with these settings?")
+        .default(true)
+        .interact()
+        .unwrap_or(false);
+    if !proceed {
+        println!("{}", Style::new().red().apply_to("Operation cancelled by user."));
+        std::process::exit(0);
+    }
+
+    (input_path, output_base, format_index, remove_bg)
 }

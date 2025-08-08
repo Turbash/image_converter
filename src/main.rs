@@ -66,9 +66,9 @@ fn main() {
             std::process::exit(1);
         }
     } else {
-        let (input_path, output_base, selection) = ui::get_user_input();
+        let (input_path, output_base, selection, remove_bg) = ui::get_user_input();
         let formats = ["jpg", "png", "webp"];
-        (input_path, output_base, formats[selection], false)
+        (input_path, output_base, formats[selection], remove_bg)
     };
 
     let input_ext = input_path.split('.').last().unwrap_or("").to_lowercase();
