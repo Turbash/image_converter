@@ -1,11 +1,13 @@
+use colored::*;
 use image::{ImageFormat, DynamicImage, RgbImage};
 use image::open;
 
 pub fn webp_to_jpg(input_path: &str, output_path: &str) -> Result<(), String> {
+    println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("Converting WebP to JPG: {} -> {}", input_path, output_path));
     let img = match open(input_path) {
         Ok(i) => i,
         Err(e) => {
-            return Err(format!("Failed to open WebP: {}", e));
+            return Err(format!("[ERROR] Failed to open input WebP '{}': {}", input_path, e));
         }
     };
     let rgb_img = if let Some(rgba) = img.as_rgba8() {
@@ -25,7 +27,10 @@ pub fn webp_to_jpg(input_path: &str, output_path: &str) -> Result<(), String> {
         img.to_rgb8().into()
     };
     match rgb_img.save_with_format(output_path, ImageFormat::Jpeg) {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("Failed to save as JPG: {}", e)),
+        Ok(_) => {
+            println!("{} {} {}", "[SUCCESS]".bold().green(), "✔".green(), format!("Saved JPG: {}", output_path));
+            Ok(())
+        },
+        Err(e) => Err(format!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to save as JPG '{}': {}", output_path, e))),
     }
 }

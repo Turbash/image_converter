@@ -68,7 +68,10 @@ pub fn get_user_input() -> (String, String, usize, bool) {
 
     let input_path = pick_file(&std::env::current_dir().unwrap())
         .map(|p| p.display().to_string())
-        .expect("No file selected");
+        .unwrap_or_else(|| {
+            eprintln!("[ERROR] No file selected. Exiting.");
+            std::process::exit(1);
+        });
 
     let output_base = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter the desired output file name (without extension)")
@@ -82,7 +85,10 @@ pub fn get_user_input() -> (String, String, usize, bool) {
             }
         })
         .interact_text()
-        .expect("Failed to read output path");
+        .unwrap_or_else(|e| {
+            eprintln!("[ERROR] Failed to read output path: {}", e);
+            std::process::exit(1);
+        });
 
     let formats = ["JPG", "PNG", "WebP"];
     let format_index = Select::with_theme(&ColorfulTheme::default())
@@ -90,7 +96,10 @@ pub fn get_user_input() -> (String, String, usize, bool) {
         .items(&formats)
         .default(0)
         .interact()
-        .expect("Failed to select format");
+        .unwrap_or_else(|e| {
+            eprintln!("[ERROR] Failed to select format: {}", e);
+            std::process::exit(1);
+        });
 
     let mut remove_bg = false;
     if format_index == 1 || format_index == 2 {
@@ -117,7 +126,10 @@ pub fn get_user_input() -> (String, String, usize, bool) {
         .with_prompt("Proceed with these settings?")
         .default(true)
         .interact()
-        .unwrap_or(false);
+        .unwrap_or_else(|e| {
+            eprintln!("[ERROR] Failed to confirm operation: {}", e);
+            std::process::exit(1);
+        });
     if !proceed {
         println!("{}", Style::new().red().apply_to("Operation cancelled by user."));
         std::process::exit(0);

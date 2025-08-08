@@ -1,3 +1,4 @@
+use colored::*;
 mod png_to_jpg;
 mod jpg_to_png;
 mod webp_to_jpg;
@@ -62,7 +63,7 @@ fn main() {
             };
             (cli.input.unwrap(), cli.output.unwrap(), ext, cli.remove_bg)
         } else {
-            eprintln!("Missing required CLI arguments. Use --help for usage.");
+            eprintln!("[ERROR] Missing required CLI arguments. Use --help for usage.");
             std::process::exit(1);
         }
     } else {
@@ -75,11 +76,17 @@ fn main() {
     let output_file = format!("{}.{}", output_base, output_ext);
 
     if input_ext == output_ext {
-        fs::copy(&input_path, &output_file).expect("Failed to copy file");
-        println!("\n✅ No conversion needed. File copied as {}", output_file);
+        match fs::copy(&input_path, &output_file) {
+            Ok(_) => println!("\n{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("No conversion needed. File copied as {}", output_file)),
+            Err(e) => {
+                eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to copy file: {}", e));
+                process::exit(1);
+            }
+        }
         return;
     }
 
+    println!("{} {} {}", "[INFO]".bold().yellow(), "[34m[1mℹ[0m".yellow(), format!("Starting conversion: {} -> {} ({} -> {})", input_path, output_file, input_ext, output_ext));
     let result = match (input_ext.as_str(), output_ext) {
         ("png", "jpg") => png_to_jpg::png_to_jpg(&input_path, &output_file),
         ("jpg", "png") => jpg_to_png::jpg_to_png(&input_path, &output_file),
@@ -87,23 +94,26 @@ fn main() {
         ("jpg", "webp") => jpg_to_webp::jpg_to_webp(&input_path, &output_file),
         ("png", "webp") => png_to_webp::png_to_webp(&input_path, &output_file),
         ("webp", "png") => webp_to_png::webp_to_png(&input_path, &output_file),
-        _ => Err(format!("Conversion from {} to {} is not supported yet.", input_ext, output_ext)),
+        _ => Err(format!("[ERROR] Conversion from {} to {} is not supported.", input_ext, output_ext)),
     };
 
     match result {
-        Ok(_) => println!("\n✅ Conversion successful!\nInput: {}\nOutput: {}\nFormat: {}", input_path, output_file, output_ext.to_uppercase()),
+        Ok(_) => println!("\n{} {} {}\n  Input: {}\n  Output: {}\n  Format: {}",
+            "[SUCCESS]".bold().green(), "✔".green(), "Conversion successful!",
+            input_path, output_file, output_ext.to_uppercase()),
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), e);
             process::exit(1);
         }
     }
 
     if (output_ext == "png" || output_ext == "webp") && remove_bg {
+        println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), "Attempting background removal...");
         match preprocess_image(&input_path)
             .and_then(|input_tensor| run_inference(input_tensor))
             .and_then(|mask| apply_mask(&input_path, mask, &output_file)) {
-            Ok(_) => println!("Background removed and saved as {}", output_file),
-            Err(e) => eprintln!("Background removal failed: {}", e),
+            Ok(_) => println!("{} {} {}", "[SUCCESS]".bold().green(), "✔".green(), format!("Background removed and saved as {}", output_file)),
+            Err(e) => eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Background removal failed: {}", e)),
         }
     }
 }

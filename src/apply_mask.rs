@@ -2,9 +2,15 @@
 use image::io::Reader as ImageReader;
 use image::{RgbaImage, Rgba, DynamicImage, imageops};
 use ndarray::Array2;
+use colored::*;
 
 pub fn apply_mask(original_path: &str, mask: Array2<f32>, output_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let orig_img = ImageReader::open(original_path)?.decode()?.to_rgb8();
+    println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("Applying mask to image: {} -> {}", original_path, output_path));
+    let orig_img = ImageReader::open(original_path)
+        .map_err(|e| format!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to open original image '{}': {}", original_path, e)))?
+        .decode()
+        .map_err(|e| format!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to decode original image '{}': {}", original_path, e)))?
+        .to_rgb8();
     let (width, height) = orig_img.dimensions();
 
     let mask_img = {
@@ -25,6 +31,8 @@ pub fn apply_mask(original_path: &str, mask: Array2<f32>, output_path: &str) -> 
         output.put_pixel(x, y, Rgba([r, g, b, alpha]));
     }
 
-    output.save(output_path)?;
+    output.save(output_path)
+        .map_err(|e| format!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to save masked image '{}': {}", output_path, e)))?;
+    println!("{} {} {}", "[SUCCESS]".bold().green(), "✔".green(), format!("Mask applied and image saved: {}", output_path));
     Ok(())
 }
