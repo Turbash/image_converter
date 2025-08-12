@@ -2,8 +2,11 @@ use dialoguer::{Input, Select, theme::ColorfulTheme, Confirm};
 use dialoguer::console::Style;
 use std::path::{Path, PathBuf};
 use std::fs;
+use image::io::Reader as ImageReader;
+use colored::*;
+use crate::palette_extract;
 
-pub fn get_user_input() -> (String, String, usize, bool) {
+pub fn get_user_input() -> (String, String, usize, bool, bool) {
     let cyan = Style::new().cyan().bold();
     println!("{}", cyan.apply_to("\n=== Image Converter TUI ===\n"));
 
@@ -73,6 +76,39 @@ pub fn get_user_input() -> (String, String, usize, bool) {
             std::process::exit(1);
         });
 
+    let show_palette = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Show color palette for this image?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    if show_palette {
+        println!("\n{}", Style::new().cyan().apply_to("Extracting color palette..."));
+        let img = match ImageReader::open(&input_path) {
+            Ok(reader) => match reader.decode() {
+                Ok(img) => img,
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to decode image for palette extraction: {}", e);
+                    std::process::exit(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("[ERROR] Failed to open image for palette extraction: {}", e);
+                std::process::exit(1);
+            }
+        };
+        let palette = palette_extract::extract_palette(&img, 6);
+        println!("\n{}", Style::new().magenta().bold().apply_to("Dominant Color Palette:"));
+        for hex in &palette {
+            print!("{}  ", "  ".on_truecolor(
+                u8::from_str_radix(&hex[1..3], 16).unwrap_or(0),
+                u8::from_str_radix(&hex[3..5], 16).unwrap_or(0),
+                u8::from_str_radix(&hex[5..7], 16).unwrap_or(0)
+            ));
+            print!("{}  ", hex.bold());
+        }
+        println!("\n");
+    }
+
     let output_base = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Enter the desired output file name (without extension)")
         .validate_with(|input: &String| {
@@ -90,7 +126,7 @@ pub fn get_user_input() -> (String, String, usize, bool) {
             std::process::exit(1);
         });
 
-    let formats = ["JPG", "PNG", "WebP"];
+    let formats = ["JPG/JPEG", "PNG", "WebP"];
     let format_index = Select::with_theme(&ColorfulTheme::default())
         .with_prompt("Select the output format")
         .items(&formats)
@@ -135,5 +171,11 @@ pub fn get_user_input() -> (String, String, usize, bool) {
         std::process::exit(0);
     }
 
-    (input_path, output_base, format_index, remove_bg)
+    let show_palette = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Show color palette for this image?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+
+    (input_path, output_base, format_index, remove_bg, show_palette)
 }

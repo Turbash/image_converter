@@ -12,6 +12,10 @@ This is a simple solution to convert images from one format to another and also 
 
 * Backround removal using a very nice model.
 
+* Shows you a nice color palette from your image.
+
+* Strips all metadata if you want.
+
 * It is useful for web developers who constantly need this conversion.
 
 * It has good logs and error handling.
@@ -48,10 +52,13 @@ or
 1. For interactive method, no real instructions required here, everything is there in ui, just run the executable or if running from source code, use cargo run.
 
 2. For one line command, there are few args u can use:
+
 ``` 
 cargo --help
 ```
+
 or if using executable
+
 ```
 ./image_converter --help
 ```
@@ -74,3 +81,7 @@ The project uses U2-Net model for backround removal.
 
 This project is licensed under the MIT License.
 You are free to use, modify, and distribute this software for any purpose.
+
+## Contributing Guide
+
+Feel free to fork the project and play with the code. If you want to conribute to the project, please open an issue first. And then do a pull request, I will then verify ur request and if it is good i will accept it.
