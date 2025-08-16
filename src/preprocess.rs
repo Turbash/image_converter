@@ -4,7 +4,7 @@ use ndarray::Array4;
 use colored::*;
 
 pub fn preprocess_image(path: &str) -> Result<Array4<f32>, Box<dyn std::error::Error>> {
-    println!("{} {} {}", "[INFO]".bold().yellow(), "[34m[1mℹ[0m".yellow(), format!("Preprocessing image for ONNX model: {}", path));
+    println!("{} {} {}", "[INFO]".bold().yellow(), "i".bold().yellow(), format!("Preprocessing image for ONNX model: {}", path));
     let img = ImageReader::open(path)
         .map_err(|e| format!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to open image '{}': {}", path, e)))?
         .decode()

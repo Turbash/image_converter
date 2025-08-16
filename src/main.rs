@@ -37,7 +37,7 @@ struct Cli {
     #[arg(short, long, value_name = "FILE", help = "Input image file path (required)")]
     input: Option<String>,
 
-    #[arg(short, long, value_name = "NAME", help = "Output file name, without extension (required)")]
+    #[arg(short, long, value_name = "PATH", help = "Output file path or directory (required)")]
     output: Option<String>,
 
     #[arg(short, long, value_enum, value_name = "FORMAT", help = "Output format: jpg, png, or webp (required)")]
@@ -63,7 +63,7 @@ enum Format {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let (input_path, output_base, output_ext, remove_bg, palette) = if args.len() > 1 {
+    let (input_path, output_base, output_ext, remove_bg, strip_metadata, _palette) = if args.len() > 1 {
         let cli = Cli::parse();
         if cli.input.is_some() && cli.output.is_some() && cli.format.is_some() {
             let ext = match cli.format.unwrap() {
@@ -71,20 +71,46 @@ fn main() {
                 Format::Png => "png",
                 Format::Webp => "webp",
             };
-            (cli.input.unwrap(), cli.output.unwrap(), ext, cli.remove_bg, cli.palette)
+            let input_path = cli.input.unwrap();
+            let output_arg = cli.output.unwrap();
+            let output_base = {
+                use std::path::{Path, PathBuf};
+                let output_path = Path::new(&output_arg);
+                if output_path.is_dir() || (output_path.exists() && output_path.is_dir()) {
+                    let input_file = Path::new(&input_path)
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "output".to_string());
+                    let mut out = PathBuf::from(output_path);
+                    out.push(input_file);
+                    out.to_string_lossy().to_string()
+                } else {
+                    let stem = output_path.file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| output_arg.clone());
+                    let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
+                    let mut out = parent.to_path_buf();
+                    out.push(stem);
+                    out.to_string_lossy().to_string()
+                }
+            };
+            (input_path, output_base, ext, cli.remove_bg, cli.strip_metadata, cli.palette)
         } else {
             eprintln!("[ERROR] Missing required CLI arguments. Use --help for usage.");
             std::process::exit(1);
         }
     } else {
-        let (input_path, output_base, selection, remove_bg, palette) = ui::get_user_input();
+        let (input_path, output_base, selection, remove_bg, strip_metadata) = ui::get_user_input();
         let formats = ["jpg", "png", "webp"];
-        (input_path, output_base, formats[selection], remove_bg, palette)
+        (input_path, output_base, formats[selection], remove_bg, strip_metadata, false)
     };
 
     let input_ext = input_path.split('.').last().unwrap_or("").to_lowercase();
+    let input_ext = if input_ext == "jpeg" { "jpg".to_string() } else { input_ext };
+    let output_ext = if output_ext == "jpeg" { "jpg" } else { output_ext };
     let output_file = format!("{}.{}", output_base, output_ext);
-    if input_ext == output_ext {
+    let do_copy = input_ext == output_ext && !remove_bg && !strip_metadata;
+    if do_copy {
         match fs::copy(&input_path, &output_file) {
             Ok(_) => println!("\n{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("No conversion needed. File copied as {}", output_file)),
             Err(e) => {
@@ -95,18 +121,22 @@ fn main() {
         return;
     }
 
-    println!("{} {} {}", "[INFO]".bold().yellow(), "[34m[1mℹ[0m".yellow(), format!("Starting conversion: {} -> {} ({} -> {})", input_path, output_file, input_ext, output_ext));
+    println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("Starting conversion: {} -> {} ({} -> {})", input_path, output_file, input_ext, output_ext));
     let input_is_jpg = input_ext == "jpg" || input_ext == "jpeg";
     let output_is_jpg = output_ext == "jpg" || output_ext == "jpeg";
 
-    let result = match ((input_ext.as_str(), output_ext), (input_is_jpg, output_is_jpg)) {
-        (("png", out), (_, true)) if out == "jpg" || out == "jpeg" => png_to_jpg::png_to_jpg(&input_path, &output_file),
-        ((inp, "png"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_png::jpg_to_png(&input_path, &output_file),
-        (("webp", out), (_, true)) if out == "jpg" || out == "jpeg" => webp_to_jpg::webp_to_jpg(&input_path, &output_file),
-        ((inp, "webp"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_webp::jpg_to_webp(&input_path, &output_file),
-        (("png", "webp"), _) => png_to_webp::png_to_webp(&input_path, &output_file),
-        (("webp", "png"), _) => webp_to_png::webp_to_png(&input_path, &output_file),
-        _ => Err(format!("[ERROR] Conversion from {} to {} is not supported.", input_ext, output_ext)),
+    let result = if input_ext == output_ext {
+        Ok(())
+    } else {
+        match ((input_ext.as_str(), output_ext), (input_is_jpg, output_is_jpg)) {
+            (("png", out), (_, true)) if out == "jpg" || out == "jpeg" => png_to_jpg::png_to_jpg(&input_path, &output_file),
+            ((inp, "png"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_png::jpg_to_png(&input_path, &output_file),
+            (("webp", out), (_, true)) if out == "jpg" || out == "jpeg" => webp_to_jpg::webp_to_jpg(&input_path, &output_file),
+            ((inp, "webp"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_webp::jpg_to_webp(&input_path, &output_file),
+            (("png", "webp"), _) => png_to_webp::png_to_webp(&input_path, &output_file),
+            (("webp", "png"), _) => webp_to_png::webp_to_png(&input_path, &output_file),
+            _ => Err(format!("[ERROR] Conversion from {} to {} is not supported.", input_ext, output_ext)),
+        }
     };
     match result {
         Ok(_) => println!("\n{} {} {}\n  Input: {}\n  Output: {}\n  Format: {}",

@@ -8,7 +8,7 @@ This is a simple solution to convert images from one format to another and also 
 
 * A one command run feature with args.
 
-* A nice terminal interactive ui if u want that
+* A nice terminal interactive ui if u want that.
 
 * Backround removal using a very nice model.
 

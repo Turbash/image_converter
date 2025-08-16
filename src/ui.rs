@@ -69,10 +69,62 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
         }
     }
 
+
     let input_path = pick_file(&std::env::current_dir().unwrap())
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| {
             eprintln!("[ERROR] No file selected. Exiting.");
+            std::process::exit(1);
+        });
+
+    fn pick_dir(start_dir: &Path) -> Option<PathBuf> {
+        #[derive(Debug)]
+        enum Item {
+            SelectCurrent,
+            Up,
+            Dir(PathBuf),
+        }
+        let mut current_dir = start_dir.to_path_buf();
+        loop {
+            let mut entries: Vec<_> = fs::read_dir(&current_dir)
+                .ok()?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir() && !e.file_name().to_str().map(|n| n.starts_with('.')).unwrap_or(false))
+                .collect();
+            entries.sort_by_key(|e| e.path());
+            let mut items = vec!["✅ Select this directory".to_string()];
+            let mut actions = vec![Item::SelectCurrent];
+            if let Some(_parent) = current_dir.parent() {
+                items.push("[..]".to_string());
+                actions.push(Item::Up);
+            }
+            for entry in &entries {
+                let path = entry.path();
+                items.push(format!("📁 {}", path.file_name()?.to_string_lossy()));
+                actions.push(Item::Dir(path));
+            }
+            let selection = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!("Select output directory (current: {})", current_dir.display()))
+                .items(&items)
+                .default(0)
+                .interact()
+                .ok()?;
+            match &actions[selection] {
+                Item::SelectCurrent => return Some(current_dir.clone()),
+                Item::Up => {
+                    current_dir = current_dir.parent().unwrap().to_path_buf();
+                }
+                Item::Dir(dir) => {
+                    current_dir = dir.clone();
+                }
+            }
+        }
+    }
+
+    let output_dir = pick_dir(&std::env::current_dir().unwrap())
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| {
+            eprintln!("[ERROR] No output directory selected. Exiting.");
             std::process::exit(1);
         });
 
@@ -125,6 +177,7 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
             eprintln!("[ERROR] Failed to read output path: {}", e);
             std::process::exit(1);
         });
+    let output_base = format!("{}/{}", output_dir, output_base);
 
     let formats = ["JPG/JPEG", "PNG", "WebP"];
     let format_index = Select::with_theme(&ColorfulTheme::default())
@@ -150,6 +203,12 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
         }
     }
 
+    let strip_metadata = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Strip all metadata from output image?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+
     println!("\n{}", cyan.apply_to("Summary:"));
     println!("  Input file:   {}", input_path);
     println!("  Output name:  {}", output_base);
@@ -157,6 +216,7 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
     if format_index == 1 || format_index == 2 {
         println!("  Remove BG:    {}", if remove_bg { "Yes" } else { "No" });
     }
+    println!("  Strip metadata: {}", if strip_metadata { "Yes" } else { "No" });
 
     let proceed = Confirm::with_theme(&ColorfulTheme::default())
         .with_prompt("Proceed with these settings?")
@@ -171,11 +231,5 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
         std::process::exit(0);
     }
 
-    let show_palette = Confirm::with_theme(&ColorfulTheme::default())
-        .with_prompt("Show color palette for this image?")
-        .default(false)
-        .interact()
-        .unwrap_or(false);
-
-    (input_path, output_base, format_index, remove_bg, show_palette)
+    (input_path, output_base, format_index, remove_bg, strip_metadata)
 }

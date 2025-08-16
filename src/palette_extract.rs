@@ -1,5 +1,5 @@
 use image::DynamicImage;
-use palette::{Srgb, IntoColor};
+use palette::{Srgb};
 use kmeans_colors::get_kmeans;
 
 pub fn extract_palette(img: &DynamicImage, num_colors: usize) -> Vec<String> {
