@@ -1,3 +1,4 @@
+mod batch_processing;
 use colored::*;
 mod png_to_jpg;
 mod jpg_to_png;
@@ -21,36 +22,46 @@ use apply_mask::apply_mask;
 use clap::{Parser, ValueEnum};
 use std::env;
 
+
 #[derive(Parser, Debug)]
 #[command(
     author,
     version,
-    about = "Convert images between PNG, JPEG, and WebP formats. Optionally remove backgrounds, strip metadata, or extract color palettes.",
+    about = "Convert images between PNG, JPEG, and WebP formats. Supports batch processing, background removal, metadata stripping, and more.",
     long_about = "A fast, cross-platform CLI and TUI tool for converting images between PNG, JPEG, and WebP formats.\n\
-    - Use the CLI for quick conversions, or run without arguments for an interactive TUI.\n\
+    - Use the CLI for single or batch conversions, or run without arguments for an interactive TUI.\n\
     - Optionally remove backgrounds from PNG/WebP outputs using a bundled ONNX model (no system dependencies).\n\
     - Optionally strip all metadata from output images (pure Rust, no dependencies).\n\
     - Optionally extract a color palette from any image.\n\
     - All logic is pure Rust and self-contained.\n\
-    \nEXAMPLES:\n  image_converter -i input.jpg -o output -f png --remove-bg\n  image_converter -i input.png -o output -f png --strip-metadata\n  image_converter --input file.webp --output result --format jpg -p\n  image_converter\n\nSupported formats: jpg, jpeg, png, webp.\nBackground removal only applies to PNG & WebP outputs. Metadata stripping applies to all formats.")]
-struct Cli {
-    #[arg(short, long, value_name = "FILE", help = "Input image file path (required)")]
-    input: Option<String>,
-
-    #[arg(short, long, value_name = "PATH", help = "Output file path or directory (required)")]
-    output: Option<String>,
-
-    #[arg(short, long, value_enum, value_name = "FORMAT", help = "Output format: jpg, png, or webp (required)")]
-    format: Option<Format>,
-
-    #[arg(short = 'b', long, help = "Remove background (PNG/WebP output only)")]
-    remove_bg: bool,
-
-    #[arg(short = 's', long, help = "Strip all metadata from the output image (pure Rust, all formats)")]
-    strip_metadata: bool,
-
-    #[arg(short = 'p', long, help = "Extract and display a color palette from the input image")]
-    palette: bool,
+    \nUSAGE:\n  image_converter convert -i input.jpg -o output -f png --remove-bg\n  image_converter batch --input-dir ./indir --output-dir ./outdir -f webp -b -s\n  image_converter\n\nSUBCOMMANDS:\n  convert    Convert a single image file\n  batch      Batch process all images in a directory\n\nSupported formats: jpg, jpeg, png, webp. Background removal only applies to PNG & WebP outputs. Metadata stripping applies to all formats.")]
+enum Cli {
+    Convert {
+        #[arg(short, long, value_name = "FILE", help = "Input image file path (required)")]
+        input: String,
+        #[arg(short, long, value_name = "PATH", help = "Output file path or directory (required)")]
+        output: String,
+        #[arg(short, long, value_enum, value_name = "FORMAT", help = "Output format: jpg, png, or webp (required)")]
+        format: Format,
+        #[arg(short = 'b', long, help = "Remove background (PNG/WebP output only)")]
+        remove_bg: bool,
+        #[arg(short = 's', long, help = "Strip all metadata from the output image (pure Rust, all formats)")]
+        strip_metadata: bool,
+        #[arg(short = 'p', long, help = "Extract and display a color palette from the input image")]
+        palette: bool,
+    },
+    Batch {
+        #[arg(long, value_name = "DIR", help = "Input directory (required)")]
+        input_dir: String,
+        #[arg(long, value_name = "DIR", help = "Output directory (required)")]
+        output_dir: String,
+        #[arg(short, long, value_enum, value_name = "FORMAT", help = "Output format: jpg, png, or webp (required)")]
+        format: Format,
+        #[arg(short = 'b', long, help = "Remove background (PNG/WebP output only)")]
+        remove_bg: bool,
+        #[arg(short = 's', long, help = "Strip all metadata from the output images (pure Rust, all formats)")]
+        strip_metadata: bool,
+    },
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum, Debug)]
@@ -63,16 +74,15 @@ enum Format {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let (input_path, output_base, output_ext, remove_bg, strip_metadata, _palette) = if args.len() > 1 {
-        let cli = Cli::parse();
-        if cli.input.is_some() && cli.output.is_some() && cli.format.is_some() {
-            let ext = match cli.format.unwrap() {
+    let (input_path, output_base, output_ext, remove_bg, strip_metadata, _palette) = match Cli::parse() {
+        Cli::Convert { input, output, format, remove_bg, strip_metadata, palette } => {
+            let ext = match format {
                 Format::Jpg => "jpg",
                 Format::Png => "png",
                 Format::Webp => "webp",
             };
-            let input_path = cli.input.unwrap();
-            let output_arg = cli.output.unwrap();
+            let input_path = input;
+            let output_arg = output;
             let output_base = {
                 use std::path::{Path, PathBuf};
                 let output_path = Path::new(&output_arg);
@@ -94,15 +104,24 @@ fn main() {
                     out.to_string_lossy().to_string()
                 }
             };
-            (input_path, output_base, ext, cli.remove_bg, cli.strip_metadata, cli.palette)
-        } else {
-            eprintln!("[ERROR] Missing required CLI arguments. Use --help for usage.");
-            std::process::exit(1);
+            (input_path, output_base, ext, remove_bg, strip_metadata, palette)
         }
-    } else {
-        let (input_path, output_base, selection, remove_bg, strip_metadata) = ui::get_user_input();
-        let formats = ["jpg", "png", "webp"];
-        (input_path, output_base, formats[selection], remove_bg, strip_metadata, false)
+        Cli::Batch { input_dir, output_dir, format, remove_bg, strip_metadata } => {
+            let format_index = match format {
+                Format::Jpg => 0,
+                Format::Png => 1,
+                Format::Webp => 2,
+            };
+            let job = batch_processing::BatchJob {
+                input_dir,
+                output_dir,
+                format_index,
+                remove_bg,
+                strip_metadata,
+            };
+            job.run();
+            std::process::exit(0);
+        }
     };
 
     let input_ext = input_path.split('.').last().unwrap_or("").to_lowercase();

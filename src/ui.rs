@@ -1,3 +1,157 @@
+pub fn pick_dir(start_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    use dialoguer::{Select, theme::ColorfulTheme};
+    use std::fs;
+    use std::path::PathBuf;
+    #[derive(Debug)]
+    enum Item {
+        SelectCurrent,
+        Up,
+        Dir(PathBuf),
+    }
+    let mut current_dir = start_dir.to_path_buf();
+    loop {
+        let mut entries: Vec<_> = fs::read_dir(&current_dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir() && !e.file_name().to_str().map(|n| n.starts_with('.')).unwrap_or(false))
+            .collect();
+        entries.sort_by_key(|e| e.path());
+        let mut items = vec!["✅ Select this directory".to_string()];
+        let mut actions = vec![Item::SelectCurrent];
+        if let Some(_parent) = current_dir.parent() {
+            items.push("[..]".to_string());
+            actions.push(Item::Up);
+        }
+        for entry in &entries {
+            let path = entry.path();
+            items.push(format!("📁 {}", path.file_name()?.to_string_lossy()));
+            actions.push(Item::Dir(path));
+        }
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!("Select directory (current: {})", current_dir.display()))
+            .items(&items)
+            .default(0)
+            .interact()
+            .ok()?;
+        match &actions[selection] {
+            Item::SelectCurrent => return Some(current_dir.clone()),
+            Item::Up => {
+                current_dir = current_dir.parent().unwrap().to_path_buf();
+            }
+            Item::Dir(dir) => {
+                current_dir = dir.clone();
+            }
+        }
+    }
+}
+pub struct BatchOptions {
+    pub input_dir: String,
+    pub output_dir: String,
+    pub format_index: usize,
+    pub remove_bg: bool,
+    pub strip_metadata: bool,
+}
+
+pub fn get_batch_options() -> Option<BatchOptions> {
+    let cyan = Style::new().cyan().bold();
+    println!("{}", cyan.apply_to("\n=== Batch Processing ===\n"));
+
+    let input_dir = {
+        println!("Select input directory:");
+        pick_dir(&std::env::current_dir().unwrap())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| {
+                eprintln!("[ERROR] No input directory selected. Exiting.");
+                std::process::exit(1);
+            })
+    };
+    let output_dir = {
+        println!("Select output directory:");
+        pick_dir(&std::env::current_dir().unwrap())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| {
+                eprintln!("[ERROR] No output directory selected. Exiting.");
+                std::process::exit(1);
+            })
+    };
+    let formats = ["JPG/JPEG", "PNG", "WebP"];
+    let format_index = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select the output format for all images")
+        .items(&formats)
+        .default(0)
+        .interact()
+        .unwrap_or(0);
+    let mut remove_bg = false;
+    if format_index == 1 || format_index == 2 {
+        println!("\n{}", Style::new().yellow().apply_to("Background removal is available for PNG and WebP outputs."));
+        remove_bg = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Remove background from output images?")
+            .default(false)
+            .interact()
+            .unwrap_or(false);
+    }
+    let strip_metadata = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Strip all metadata from output images?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+    println!("\n{}", cyan.apply_to("Batch Summary:"));
+    println!("  Input dir:    {}", input_dir);
+    println!("  Output dir:   {}", output_dir);
+    println!("  Output type:  {}", formats[format_index]);
+    if format_index == 1 || format_index == 2 {
+        println!("  Remove BG:    {}", if remove_bg { "Yes" } else { "No" });
+    }
+    println!("  Strip metadata: {}", if strip_metadata { "Yes" } else { "No" });
+    let proceed = Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Proceed with batch processing?")
+        .default(true)
+        .interact()
+        .unwrap_or(false);
+    if !proceed {
+        println!("{}", Style::new().red().apply_to("Batch operation cancelled by user."));
+        return None;
+    }
+    Some(BatchOptions {
+        input_dir,
+        output_dir,
+        format_index,
+        remove_bg,
+        strip_metadata,
+    })
+}
+pub enum TuiAction {
+    SingleFile,
+    Batch,
+    Settings,
+    Help,
+    Exit,
+}
+
+pub fn main_menu() -> TuiAction {
+    let cyan = Style::new().cyan().bold();
+    println!("{}", cyan.apply_to("\n=== Image Converter ===\n"));
+    let items = vec![
+        "Single File Conversion",
+        "Batch Processing",
+        "Settings",
+        "Help / About",
+        "Exit",
+    ];
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Choose an option:")
+        .items(&items)
+        .default(0)
+        .interact()
+        .unwrap_or(4);
+    match selection {
+        0 => TuiAction::SingleFile,
+        1 => TuiAction::Batch,
+        2 => TuiAction::Settings,
+        3 => TuiAction::Help,
+        _ => TuiAction::Exit,
+    }
+}
 use dialoguer::{Input, Select, theme::ColorfulTheme, Confirm};
 use dialoguer::console::Style;
 use std::path::{Path, PathBuf};
@@ -9,6 +163,40 @@ use crate::palette_extract;
 pub fn get_user_input() -> (String, String, usize, bool, bool) {
     let cyan = Style::new().cyan().bold();
     println!("{}", cyan.apply_to("\n=== Image Converter TUI ===\n"));
+
+}
+
+/// Show About/Help information in the TUI.
+pub fn show_about_help() {
+    use std::io::{self, Write};
+    let cyan = Style::new().cyan().bold();
+    let magenta = Style::new().magenta().bold();
+    println!("{}", cyan.apply_to("\n=== About / Help ===\n"));
+    println!("{}", magenta.apply_to("Image Converter - Rust CLI/TUI"));
+    println!("Version: 1.0.0");
+    println!("Author: Turbash Negi");
+    println!("License: MIT\n");
+    println!("Features:");
+    println!("  - Convert between PNG, JPG/JPEG, and WebP formats");
+    println!("  - ONNX-based background removal (PNG/WebP)");
+    println!("  - Batch processing and single file mode");
+    println!("  - Color palette extraction");
+    println!("  - Metadata stripping");
+    println!("  - TUI with file/directory explorer");
+    println!("  - Robust error handling and colored logs\n");
+    println!("Usage:");
+    println!("  - Use arrow keys to navigate menus and select files/directories.");
+    println!("  - Choose 'Single File Conversion' or 'Batch Processing' from the main menu.");
+    println!("  - Follow prompts for options like background removal, metadata, and palette.");
+    println!("  - Use the CLI for scripting: image_converter --help\n");
+    println!("Credits:");
+    println!("  - Built with Rust, image, webp, clap, dialoguer, onnxruntime, colored, kmeans-colors, palette crates.");
+    println!("  - ONNX model: u2net.onnx (for background removal)");
+    println!("  - Inspired by open-source image tools and the Rust community.\n");
+    println!("For more info, see the README or run with --help.\n");
+    print!("Press Enter to return to the main menu...");
+    io::stdout().flush().ok();
+    let _ = io::stdin().read_line(&mut String::new());
 
     fn pick_file(start_dir: &Path) -> Option<PathBuf> {
         #[derive(Debug)]
@@ -77,49 +265,6 @@ pub fn get_user_input() -> (String, String, usize, bool, bool) {
             std::process::exit(1);
         });
 
-    fn pick_dir(start_dir: &Path) -> Option<PathBuf> {
-        #[derive(Debug)]
-        enum Item {
-            SelectCurrent,
-            Up,
-            Dir(PathBuf),
-        }
-        let mut current_dir = start_dir.to_path_buf();
-        loop {
-            let mut entries: Vec<_> = fs::read_dir(&current_dir)
-                .ok()?
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_dir() && !e.file_name().to_str().map(|n| n.starts_with('.')).unwrap_or(false))
-                .collect();
-            entries.sort_by_key(|e| e.path());
-            let mut items = vec!["✅ Select this directory".to_string()];
-            let mut actions = vec![Item::SelectCurrent];
-            if let Some(_parent) = current_dir.parent() {
-                items.push("[..]".to_string());
-                actions.push(Item::Up);
-            }
-            for entry in &entries {
-                let path = entry.path();
-                items.push(format!("📁 {}", path.file_name()?.to_string_lossy()));
-                actions.push(Item::Dir(path));
-            }
-            let selection = Select::with_theme(&ColorfulTheme::default())
-                .with_prompt(format!("Select output directory (current: {})", current_dir.display()))
-                .items(&items)
-                .default(0)
-                .interact()
-                .ok()?;
-            match &actions[selection] {
-                Item::SelectCurrent => return Some(current_dir.clone()),
-                Item::Up => {
-                    current_dir = current_dir.parent().unwrap().to_path_buf();
-                }
-                Item::Dir(dir) => {
-                    current_dir = dir.clone();
-                }
-            }
-        }
-    }
 
     let output_dir = pick_dir(&std::env::current_dir().unwrap())
         .map(|p| p.display().to_string())

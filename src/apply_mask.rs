@@ -1,4 +1,3 @@
-
 use image::io::Reader as ImageReader;
 use image::{RgbaImage, Rgba, DynamicImage, imageops};
 use ndarray::Array2;

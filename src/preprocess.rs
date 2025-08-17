@@ -1,4 +1,3 @@
-
 use image::{io::Reader as ImageReader};
 use ndarray::Array4;
 use colored::*;
