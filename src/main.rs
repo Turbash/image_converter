@@ -73,7 +73,39 @@ enum Format {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let arg_count = std::env::args().len();
+    if arg_count == 1 {
+        // TUI main loop
+        loop {
+            match ui::main_menu() {
+                ui::TuiAction::SingleFile => {
+                    let (input_path, output_base, format_index, remove_bg, strip_metadata) = ui::get_user_input();
+                    // You can call your single file conversion logic here, or refactor it into a function for reuse.
+                    println!("[TUI] Single file conversion selected: {} -> {} (format idx: {}, remove_bg: {}, strip_metadata: {})", input_path, output_base, format_index, remove_bg, strip_metadata);
+                }
+                ui::TuiAction::Batch => {
+                    if let Some(batch_opts) = ui::get_batch_options() {
+                        let job = batch_processing::BatchJob {
+                            input_dir: batch_opts.input_dir,
+                            output_dir: batch_opts.output_dir,
+                            format_index: batch_opts.format_index,
+                            remove_bg: batch_opts.remove_bg,
+                            strip_metadata: batch_opts.strip_metadata,
+                        };
+                        job.run();
+                    }
+                }
+                ui::TuiAction::Settings => {
+                    // (Optional: implement settings menu)
+                }
+                ui::TuiAction::Help => ui::show_about_help(),
+                ui::TuiAction::Exit => break,
+            }
+        }
+        return;
+    }
+
+    // CLI logic as before
     let (input_path, output_base, output_ext, remove_bg, strip_metadata, _palette) = match Cli::parse() {
         Cli::Convert { input, output, format, remove_bg, strip_metadata, palette } => {
             let ext = match format {
