@@ -6,7 +6,7 @@ This is a simple solution to convert images from one format to another and also 
 
 * Supports conversion between 3 major formats jpg, png and webp.
 
-* A one command run feature with args.
+* A one line command run option with args.
 
 * A nice terminal interactive ui if u want that.
 
@@ -20,6 +20,8 @@ This is a simple solution to convert images from one format to another and also 
 
 * It has good logs and error handling.
 
+* Has batch processing to help you convert all images of a folder to any format.
+
 ## How to run locally
 
 1. Clone the repository
@@ -29,7 +31,7 @@ git clone https://github.com/Turbash/image_converter.git
 cd image_converter
  ```
 
-2. Build the project
+2. Build the project and run
 
 ```
 cargo run

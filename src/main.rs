@@ -12,16 +12,11 @@ mod inference;
 mod apply_mask;
 mod palette_extract;
 
-use std::fs;
-use std::process;
-
 use preprocess::preprocess_image;
 use inference::run_inference;
 use apply_mask::apply_mask;
 
 use clap::{Parser, ValueEnum};
-use std::env;
-
 
 #[derive(Parser, Debug)]
 #[command(
@@ -72,16 +67,83 @@ enum Format {
     Webp,
 }
 
+fn convert_single_file(input_path: String, output_base: String, output_ext: &str, remove_bg: bool, strip_metadata: bool) {
+    use std::fs;
+    use std::process;
+    let input_ext = input_path.split('.').last().unwrap_or("").to_lowercase();
+    let input_ext = if input_ext == "jpeg" { "jpg".to_string() } else { input_ext };
+    let output_ext = if output_ext == "jpeg" { "jpg" } else { output_ext };
+    let output_file = format!("{}.{}", output_base, output_ext);
+    let do_copy = input_ext == output_ext && !remove_bg && !strip_metadata;
+    if do_copy {
+        match fs::copy(&input_path, &output_file) {
+            Ok(_) => println!("\n{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("No conversion needed. File copied as {}", output_file)),
+            Err(e) => {
+                eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to copy file: {}", e));
+                process::exit(1);
+            }
+        }
+        return;
+    }
+    println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("Starting conversion: {} -> {} ({} -> {})", input_path, output_file, input_ext, output_ext));
+    let input_is_jpg = input_ext == "jpg" || input_ext == "jpeg";
+    let output_is_jpg = output_ext == "jpg" || output_ext == "jpeg";
+    let result = if input_ext == output_ext {
+        Ok(())
+    } else {
+        match ((input_ext.as_str(), output_ext), (input_is_jpg, output_is_jpg)) {
+            (("png", out), (_, true)) if out == "jpg" || out == "jpeg" => png_to_jpg::png_to_jpg(&input_path, &output_file),
+            ((inp, "png"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_png::jpg_to_png(&input_path, &output_file),
+            (("webp", out), (_, true)) if out == "jpg" || out == "jpeg" => webp_to_jpg::webp_to_jpg(&input_path, &output_file),
+            ((inp, "webp"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_webp::jpg_to_webp(&input_path, &output_file),
+            (("png", "webp"), _) => png_to_webp::png_to_webp(&input_path, &output_file),
+            (("webp", "png"), _) => webp_to_png::webp_to_png(&input_path, &output_file),
+            _ => Err(format!("[ERROR] Conversion from {} to {} is not supported.", input_ext, output_ext)),
+        }
+    };
+    match result {
+        Ok(_) => println!("\n{} {} {}\n  Input: {}\n  Output: {}\n  Format: {}",
+            "[SUCCESS]".bold().green(), "✔".green(), "Conversion successful!",
+            input_path, output_file, output_ext.to_uppercase()),
+        Err(e) => {
+            eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), e);
+            process::exit(1);
+        }
+    }
+    if (output_ext == "png" || output_ext == "webp") && remove_bg {
+        println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), "Attempting background removal...");
+        match preprocess_image(&input_path)
+            .and_then(|input_tensor| run_inference(input_tensor))
+            .and_then(|mask| apply_mask(&input_path, mask, &output_file)) {
+            Ok(_) => println!("{} {} {}", "[SUCCESS]".bold().green(), "✔".green(), format!("Background removed and saved as {}", output_file)),
+            Err(e) => eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Background removal failed: {}", e)),
+        }
+    }
+}
+
+fn flush_stdin() {
+    use std::io::{self, Read};
+    let mut buf = [0u8; 8];
+    while let Ok(n) = io::stdin().read(&mut buf) {
+        if n == 0 { break; }
+        if !buf[..n].contains(&b'\n') { break; }
+    }
+}
+
 fn main() {
     let arg_count = std::env::args().len();
     if arg_count == 1 {
-        // TUI main loop
         loop {
             match ui::main_menu() {
                 ui::TuiAction::SingleFile => {
                     let (input_path, output_base, format_index, remove_bg, strip_metadata) = ui::get_user_input();
-                    // You can call your single file conversion logic here, or refactor it into a function for reuse.
-                    println!("[TUI] Single file conversion selected: {} -> {} (format idx: {}, remove_bg: {}, strip_metadata: {})", input_path, output_base, format_index, remove_bg, strip_metadata);
+                    let output_ext = match format_index {
+                        0 => "jpg",
+                        1 => "png",
+                        2 => "webp",
+                        _ => "jpg",
+                    };
+                    convert_single_file(input_path, output_base, output_ext, remove_bg, strip_metadata);
                 }
                 ui::TuiAction::Batch => {
                     if let Some(batch_opts) = ui::get_batch_options() {
@@ -95,19 +157,17 @@ fn main() {
                         job.run();
                     }
                 }
-                ui::TuiAction::Settings => {
-                    // (Optional: implement settings menu)
+                ui::TuiAction::Help => {
+                    ui::show_about_help();
                 }
-                ui::TuiAction::Help => ui::show_about_help(),
                 ui::TuiAction::Exit => break,
             }
         }
         return;
     }
 
-    // CLI logic as before
     let (input_path, output_base, output_ext, remove_bg, strip_metadata, _palette) = match Cli::parse() {
-        Cli::Convert { input, output, format, remove_bg, strip_metadata, palette } => {
+        Cli::Convert { input, output, format, remove_bg, strip_metadata, palette: _ } => {
             let ext = match format {
                 Format::Jpg => "jpg",
                 Format::Png => "png",
@@ -136,7 +196,8 @@ fn main() {
                     out.to_string_lossy().to_string()
                 }
             };
-            (input_path, output_base, ext, remove_bg, strip_metadata, palette)
+            convert_single_file(input_path, output_base, ext, remove_bg, strip_metadata);
+            (String::new(), String::new(), "", false, false, false)
         }
         Cli::Batch { input_dir, output_dir, format, remove_bg, strip_metadata } => {
             let format_index = match format {
@@ -155,57 +216,4 @@ fn main() {
             std::process::exit(0);
         }
     };
-
-    let input_ext = input_path.split('.').last().unwrap_or("").to_lowercase();
-    let input_ext = if input_ext == "jpeg" { "jpg".to_string() } else { input_ext };
-    let output_ext = if output_ext == "jpeg" { "jpg" } else { output_ext };
-    let output_file = format!("{}.{}", output_base, output_ext);
-    let do_copy = input_ext == output_ext && !remove_bg && !strip_metadata;
-    if do_copy {
-        match fs::copy(&input_path, &output_file) {
-            Ok(_) => println!("\n{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("No conversion needed. File copied as {}", output_file)),
-            Err(e) => {
-                eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Failed to copy file: {}", e));
-                process::exit(1);
-            }
-        }
-        return;
-    }
-
-    println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), format!("Starting conversion: {} -> {} ({} -> {})", input_path, output_file, input_ext, output_ext));
-    let input_is_jpg = input_ext == "jpg" || input_ext == "jpeg";
-    let output_is_jpg = output_ext == "jpg" || output_ext == "jpeg";
-
-    let result = if input_ext == output_ext {
-        Ok(())
-    } else {
-        match ((input_ext.as_str(), output_ext), (input_is_jpg, output_is_jpg)) {
-            (("png", out), (_, true)) if out == "jpg" || out == "jpeg" => png_to_jpg::png_to_jpg(&input_path, &output_file),
-            ((inp, "png"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_png::jpg_to_png(&input_path, &output_file),
-            (("webp", out), (_, true)) if out == "jpg" || out == "jpeg" => webp_to_jpg::webp_to_jpg(&input_path, &output_file),
-            ((inp, "webp"), (true, _)) if inp == "jpg" || inp == "jpeg" => jpg_to_webp::jpg_to_webp(&input_path, &output_file),
-            (("png", "webp"), _) => png_to_webp::png_to_webp(&input_path, &output_file),
-            (("webp", "png"), _) => webp_to_png::webp_to_png(&input_path, &output_file),
-            _ => Err(format!("[ERROR] Conversion from {} to {} is not supported.", input_ext, output_ext)),
-        }
-    };
-    match result {
-        Ok(_) => println!("\n{} {} {}\n  Input: {}\n  Output: {}\n  Format: {}",
-            "[SUCCESS]".bold().green(), "✔".green(), "Conversion successful!",
-            input_path, output_file, output_ext.to_uppercase()),
-        Err(e) => {
-            eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), e);
-            process::exit(1);
-        }
-    }
-
-    if (output_ext == "png" || output_ext == "webp") && remove_bg {
-        println!("{} {} {}", "[INFO]".bold().yellow(), "ℹ".bold().blue(), "Attempting background removal...");
-        match preprocess_image(&input_path)
-            .and_then(|input_tensor| run_inference(input_tensor))
-            .and_then(|mask| apply_mask(&input_path, mask, &output_file)) {
-            Ok(_) => println!("{} {} {}", "[SUCCESS]".bold().green(), "✔".green(), format!("Background removed and saved as {}", output_file)),
-            Err(e) => eprintln!("{} {} {}", "[ERROR]".bold().red(), "✖".red(), format!("Background removal failed: {}", e)),
-        }
-    }
 }
